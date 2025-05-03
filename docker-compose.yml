@@ -2,7 +2,7 @@ version: '3'
 
 services:
   bastion:
-    image: keviocastro/bastion
+    image: keviocastro/bastion:ubuntu-20
     build: .
     ports:
       - "22:22"
