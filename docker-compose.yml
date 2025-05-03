@@ -1,0 +1,9 @@
+version: '3'
+
+services:
+  bastion:
+    image: keviocastro/bastion
+    build: .
+    ports:
+      - "22:22"
+    restart: unless-stopped
