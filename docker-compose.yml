@@ -1,9 +1,7 @@
 version: '3'
 
 services:
-  bastion:
-    image: keviocastro/bastion:ubuntu-20
+  node-service:
+    image: keviocastro/docker-node:20
     build: .
-    ports:
-      - "22:22"
     restart: unless-stopped

@@ -1,5 +1,20 @@
-FROM ubuntu:20.04
+FROM docker:latest
 
-RUN apt-get update && apt-get install -y openssh-server && mkdir -p /run/sshd
+# Install Node.js 20.x and npm
+RUN apk add --update --no-cache \
+    nodejs \
+    npm \
+    bash \
+    curl \
+    && node --version \
+    && npm --version
 
-CMD ["/usr/sbin/sshd", "-D"]
+# Set environment variables
+ENV NODE_VERSION=20
+
+# Add healthcheck to verify the installation
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD node --version || exit 1
+
+# Set default command to keep container running
+CMD ["node", "-e", "console.log('Node.js is ready'); setInterval(() => {}, 3600000);"]
