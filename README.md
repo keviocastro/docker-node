@@ -1,164 +1,202 @@
-# Bastion Host Docker Image
+# Docker Node.js Image for CI/CD Pipelines
 
-This project provides a simple bastion host Docker image based on Ubuntu 20.04 with SSH server installed. A bastion host serves as a secure entry point for accessing resources in a private network.
+This project provides a Docker image that combines Docker CLI with Node.js 20.x, designed specifically for CI/CD pipelines that need both Node.js for building applications and Docker for containerization tasks.
 
 ## Overview
 
-The `keviocastro/bastion` image is a minimal Ubuntu 20.04 installation with OpenSSH server configured and ready to use as a jump server or bastion host.
+The `keviocastro/docker-node:20` image is built on top of the official `docker:latest` Alpine-based image with Node.js 20.x added. This makes it ideal for CI/CD pipelines where you need to:
 
-## Getting Started
+- Build and test Node.js applications
+- Create Docker images
+- Push Docker images to registries
+- Run Docker commands within pipelines
 
-### Prerequisites
+## Included Tools and Versions
 
-- Docker
-- Docker Compose
+- Docker: Latest version from the official Docker image
+- Node.js: v20.x (currently v20.15.1)
+- npm: Included with Node.js
+- Other utilities: bash, curl
 
-### Usage
+## Using in GitLab CI/CD
 
-1. Clone this repository:
-
-```bash
-git clone https://github.com/keviocastro/bastion.git
-cd bastion
-```
-
-2. Build the Docker image:
-
-```bash
-docker-compose build
-```
-
-3. Start the bastion container:
-
-```bash
-docker-compose up -d
-```
-
-4. The SSH service will be available on port 22 of your host machine.
-
-## Configuration
-
-### SSH Access
-
-By default, the container runs an SSH server. You'll need to configure SSH access by either:
-
-- Mounting SSH authorized keys
-- Setting up password authentication (not recommended for production)
-
-### Example: Adding SSH Keys
-
-Update the docker-compose.yml file to mount your SSH authorized_keys:
-
-```yml
-services:
-  bastion:
-    # ... existing configuration ...
-    volumes:
-      - ./ssh/authorized_keys:/root/.ssh/authorized_keys
-```
-
-## Kubernetes Deployment
-
-You can also deploy this bastion host in a Kubernetes cluster. Here's how:
-
-### 1. Push the Docker image to a registry
-
-After building the image locally, push it to a container registry:
-
-```bash
-docker tag keviocastro/bastion your-registry/keviocastro/bastion:latest
-docker push your-registry/keviocastro/bastion:latest
-```
-
-### 2. Create a ConfigMap for SSH authorized keys (optional)
-
-```bash
-kubectl create configmap ssh-keys --from-file=authorized_keys=/path/to/your/authorized_keys
-```
-
-### 3. Deploy using a Kubernetes manifest
-
-Create a file named `bastion-deployment.yaml`:
+### Basic Example
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: bastion
-  labels:
-    app: bastion
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: bastion
-  template:
-    metadata:
-      labels:
-        app: bastion
-    spec:
-      containers:
-      - name: bastion
-        image: keviocastro/bastion:latest
-        ports:
-        - containerPort: 22
-        volumeMounts:
-        - name: ssh-keys
-          mountPath: /root/.ssh/authorized_keys
-          subPath: authorized_keys
-      volumes:
-      - name: ssh-keys
-        configMap:
-          name: ssh-keys
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: bastion
-spec:
-  selector:
-    app: bastion
-  ports:
-  - port: 22
-    targetPort: 22
-  type: LoadBalancer  # Or NodePort, depending on your cluster setup
+# .gitlab-ci.yml
+stages:
+  - build
+  - test
+  - deploy
+
+build:
+  stage: build
+  image: keviocastro/docker-node:20
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - npm ci
+    - npm run build
+    - docker build -t myapp:${CI_COMMIT_SHORT_SHA} .
+    - docker tag myapp:${CI_COMMIT_SHORT_SHA} registry.example.com/myapp:${CI_COMMIT_SHORT_SHA}
+    - docker push registry.example.com/myapp:${CI_COMMIT_SHORT_SHA}
+  artifacts:
+    paths:
+      - dist/
 ```
 
-### 4. Apply the manifest
+### Building and Publishing a Node.js Application
 
-```bash
-kubectl apply -f bastion-deployment.yaml
+```yaml
+# .gitlab-ci.yml
+build_and_publish:
+  image: keviocastro/docker-node:20
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    # Install dependencies
+    - npm ci
+    # Run tests
+    - npm test
+    # Build the application
+    - npm run build
+    # Build and push Docker image
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+    # If on main branch, also tag as latest
+    - if [ "$CI_COMMIT_REF_NAME" = "main" ]; then
+    -   docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG $CI_REGISTRY_IMAGE:latest
+    -   docker push $CI_REGISTRY_IMAGE:latest
+    - fi
 ```
 
-### 5. Access the bastion host
+## Using in GitHub Actions
 
-If using LoadBalancer:
-```bash
-ssh -i your_private_key root@$(kubectl get service bastion -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+### Basic Example
+
+```yaml
+# .github/workflows/build-and-deploy.yml
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: keviocastro/docker-node:20
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Docker
+      uses: docker/setup-buildx-action@v1
+      
+    - name: Build application
+      run: |
+        npm ci
+        npm run build
+        
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
 ```
 
-If using NodePort:
-```bash
-ssh -i your_private_key root@<node-ip> -p $(kubectl get service bastion -o jsonpath='{.spec.ports[0].nodePort}')
+### Node.js Application with Docker Multi-Stage Build
+
+```yaml
+# .github/workflows/node-docker.yml
+name: Node.js Docker Build
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Build and deploy
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}:${{ github.sha }}
+          ghcr.io/${{ github.repository }}:latest
 ```
 
-### 6. Security considerations for Kubernetes
+## Common Use Cases
 
-- Use Kubernetes Secrets instead of ConfigMaps for sensitive data in production
-- Consider using Network Policies to restrict access to and from the bastion host
-- Implement RBAC to control who can access the bastion pod
-- Consider using a StatefulSet if you need persistent storage
+### Running Node.js tests and building a Docker image
 
-## Customization
+```yaml
+# GitLab example
+test_and_build:
+  image: keviocastro/docker-node:20
+  services:
+    - docker:dind
+  script:
+    - npm ci
+    - npm test
+    - docker build -t myapp:latest .
+```
 
-You can customize the image by modifying the Dockerfile or docker-compose.yml file according to your requirements.
+### Frontend build and containerization
 
-## Security Considerations
+```yaml
+# GitHub Actions example
+build_frontend:
+  runs-on: ubuntu-latest
+  container: keviocastro/docker-node:20
+  
+  steps:
+  - uses: actions/checkout@v3
+  
+  - name: Install dependencies
+    run: npm ci
+    
+  - name: Build frontend
+    run: npm run build
+    
+  - name: Build container
+    run: |
+      docker build -t mycompany/frontend:${{ github.sha }} -f Dockerfile.prod .
+      echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+      docker push mycompany/frontend:${{ github.sha }}
+```
 
-- Always use SSH key authentication instead of passwords
-- Restrict SSH access to specific IP addresses when possible
-- Consider implementing additional security measures like fail2ban
-- Regularly update the container to get the latest security patches
+### Full-stack application deployment
+
+```yaml
+# GitLab example
+deploy_fullstack:
+  image: keviocastro/docker-node:20
+  services:
+    - docker:dind
+  script:
+    - npm ci
+    - npm run build
+    - docker-compose build
+    - docker-compose push
+    - kubectl apply -f k8s/deployment.yml
+```
 
 ## License
 
